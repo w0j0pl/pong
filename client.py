@@ -1,4 +1,3 @@
-# pong_client_v5.py
 import socket
 import threading
 import json
@@ -6,10 +5,9 @@ import pygame
 import tkinter as tk
 from tkinter import simpledialog
 
-SERVER_PORT = 54321
 ENCODER = "utf-8"
 BYTESIZE = 1024
-
+SERVER_PORT = 54321
 WIDTH, HEIGHT = 640, 480
 PADDLE_WIDTH, PADDLE_HEIGHT = 10, 100
 BALL_RADIUS = 10
@@ -21,6 +19,7 @@ BLACK = (0, 0, 0)
 tk_root = tk.Tk()
 tk_root.withdraw()
 SERVER_IP = simpledialog.askstring("Połączenie z serwerem", "Podaj adres IP serwera:")
+
 if not SERVER_IP:
     print("Nie podano adresu IP – wychodzę.")
     exit()
@@ -35,10 +34,12 @@ try:
     data, _ = client.recvfrom(BYTESIZE)
     welcome = json.loads(data.decode(ENCODER))
     player = welcome["player"]
+    print(f"Połączono. Jesteś graczem {player}")
 except socket.timeout:
     print("Brak odpowiedzi od serwera. Zamykanie klienta.")
     exit()
 
+# Game
 pygame.init()
 win = pygame.display.set_mode((WIDTH, HEIGHT))
 pygame.display.set_caption("NEON UDP PONG")
@@ -51,7 +52,9 @@ ball_trail = []
 score = [0, 0]
 waiting = 1
 players_connected = 1
+paused = False
 running = True
+
 
 def draw_glow_rect(surface, color, rect, glow_radius=4):
     glow_color = [min(255, c + 100) for c in color]
@@ -59,38 +62,44 @@ def draw_glow_rect(surface, color, rect, glow_radius=4):
         pygame.draw.rect(surface, glow_color, rect.inflate(i * 2, i * 2), border_radius=4)
     pygame.draw.rect(surface, color, rect)
 
+
 def draw_glow_circle(surface, color, pos, radius, glow_radius=4):
     glow_color = [min(255, c + 100) for c in color]
     for i in range(glow_radius, 0, -1):
         pygame.draw.circle(surface, glow_color, pos, radius + i)
     pygame.draw.circle(surface, color, pos, radius)
 
+
 def send_position():
     msg = {"type": "update", "paddle_y": my_paddle_y}
     client.sendto(json.dumps(msg).encode(ENCODER), server_addr)
+
 
 def send_start():
     msg = {"type": "start"}
     client.sendto(json.dumps(msg).encode(ENCODER), server_addr)
 
+
 def receive_loop():
-    global opponent_y, ball_pos, score, waiting, players_connected
+    global opponent_y, ball_pos, score, waiting, players_connected, paused
     while running:
         try:
             data, _ = client.recvfrom(BYTESIZE)
             msg = json.loads(data.decode(ENCODER))
-            if msg["type"] == "state":
-                if msg["player"] == player:
-                    opponent_y = msg["opponent_y"]
-                    ball_pos[:] = msg["ball"]
-                    score[:] = msg["score"]
-                    waiting = msg.get("waiting", 0)
-                    players_connected = msg.get("players", 1)
+            if msg["type"] == "state" and msg["player"] == player:
+                opponent_y = msg["opponent_y"]
+                ball_pos[:] = msg["ball"]
+                score[:] = msg["score"]
+                waiting = msg.get("waiting", 0)
+                players_connected = msg.get("players", 1)
+                paused = msg.get("paused", False)
         except:
             pass
 
+
 threading.Thread(target=receive_loop, daemon=True).start()
 
+# Main Loop
 while running:
     clock.tick(60)
     for event in pygame.event.get():
@@ -109,6 +118,7 @@ while running:
     send_position()
 
     win.fill(BLACK)
+
     for y in range(HEIGHT):
         fade = int(20 + (y / HEIGHT) * 30)
         pygame.draw.line(win, (fade, fade, fade + 10), (0, y), (WIDTH, y))
@@ -136,10 +146,13 @@ while running:
 
     if players_connected < 2:
         msg = "Oczekiwanie na gracza nr 2..."
+    elif paused:
+        msg = "Gra zapauzowana – oczekiwanie na gracza..."
     elif waiting == player:
         msg = "Naciśnij ENTER, by rozpocząć"
     else:
         msg = ""
+
     if msg:
         txt_surf = pygame.font.SysFont("Courier New", 24, bold=True).render(msg, True, NEON_PINK)
         win.blit(txt_surf, (WIDTH // 2 - txt_surf.get_width() // 2, 60))
